@@ -309,6 +309,10 @@ class _HarnessGameSession:
                         self.write_viewer_payload()
                 if result is None:
                     raise RuntimeError("Analyzer did not return a result.")
+                reviewer_stop_reason = getattr(result, "reviewer_stop_reason", None)
+                if reviewer_stop_reason:
+                    run.solver_note = f"reviewer: {reviewer_stop_reason}"
+                    break
                 if result.retryable_failure:
                     retry_analysis_step = analysis_step
                     if self.should_stop():

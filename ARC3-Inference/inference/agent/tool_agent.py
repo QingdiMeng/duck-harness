@@ -14,6 +14,7 @@ from urllib.parse import urlparse, urlunparse
 import requests
 
 from inference.agent.action_names import to_engine_action, to_model_action
+from inference.agent.analyze_reviewer import AnalyzeReviewer, add_review_feedback
 from inference.agent.prompts import (
     COMPACT_TOOL_SESSION_ADDENDUM,
     GAME_OVERVIEW_ADDENDUM,
@@ -146,6 +147,10 @@ _LOCAL_ANALYZER_TEMPERATURE = _get_env_float("LOCAL_ANALYZER_TEMPERATURE", 0.6)
 _LOCAL_ANALYZER_TOP_P = _get_env_float("LOCAL_ANALYZER_TOP_P", 0.95)
 _LOCAL_ANALYZER_TOP_K = _get_env_int("LOCAL_ANALYZER_TOP_K", 20)
 _LOCAL_ANALYZER_SEED = _get_env_int("LOCAL_ANALYZER_SEED", -1)
+_LOCAL_ANALYZER_REVIEWER_ENABLED = _get_env_bool("LOCAL_ANALYZER_REVIEWER_ENABLED", True)
+_LOCAL_ANALYZER_REVIEWER_WARN_REPEATS = _get_env_int("LOCAL_ANALYZER_REVIEWER_WARN_REPEATS", 3)
+_LOCAL_ANALYZER_REVIEWER_STOP_REPEATS = _get_env_int("LOCAL_ANALYZER_REVIEWER_STOP_REPEATS", 5)
+_LOCAL_ANALYZER_REVIEWER_WINDOW = _get_env_int("LOCAL_ANALYZER_REVIEWER_WINDOW", 12)
 _REQUEST_SAFETY_MARGIN_TOKENS = 512
 _CONTEXT_OVERFLOW_RETRY_TRIM_TOKENS = 512
 _PERSISTENT_HISTORY_ASSISTANT_TURNS = 30
@@ -372,6 +377,7 @@ class AnalyzerTurnResult:
     retryable_failure: bool = False
     reasoning: str = ""
     yielded_control: bool = False
+    reviewer_stop_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -930,6 +936,12 @@ class ToolAgent:
         self._timeout = None if configured_timeout is None or configured_timeout <= 0 else float(configured_timeout)
         self._api_key = str(api_key or "").strip()
         self._tool_steps = None if _LOCAL_ANALYZER_TOOL_STEPS <= 0 else max(1, _LOCAL_ANALYZER_TOOL_STEPS)
+        self._reviewer = AnalyzeReviewer(
+            enabled=_LOCAL_ANALYZER_REVIEWER_ENABLED,
+            warn_repeats=_LOCAL_ANALYZER_REVIEWER_WARN_REPEATS,
+            stop_repeats=_LOCAL_ANALYZER_REVIEWER_STOP_REPEATS,
+            window=_LOCAL_ANALYZER_REVIEWER_WINDOW,
+        )
         self._python_timeout = min(30, max(1, _LOCAL_ANALYZER_TOOL_TIMEOUT))
         self._yield_seconds = None if _LOCAL_ANALYZER_YIELD_SECONDS <= 0 else float(_LOCAL_ANALYZER_YIELD_SECONDS)
         configured_max_output = _LOCAL_ANALYZER_MAX_OUTPUT
@@ -977,6 +989,7 @@ class ToolAgent:
         if self._session_runtime_dir != runtime_dir:
             self._session_runtime_dir = runtime_dir
             self._history_messages = []
+            self._reviewer.reset()
             self._session_total_tokens = 0
             self._session_generated_tokens = 0
             self._last_step_summary = None
@@ -1758,6 +1771,9 @@ class ToolAgent:
 
         append_transcript("SYSTEM PROMPT", self._system_prompt)
         append_transcript("USER PROMPT", user_prompt)
+        self._reviewer.begin_state((str(state_path.resolve()), action_num,
+                                    current_frame.level if current_frame is not None else None,
+                                    current_frame.ascii if current_frame is not None else None))
 
         previous_history_messages = list(self._history_messages)
         preserve_history = True
@@ -1774,6 +1790,7 @@ class ToolAgent:
         latest_request_index = 0
         turn_started_at = time.monotonic()
         yielded_control_reason: str | None = None
+        reviewer_stop_reason: str | None = None
 
         def control_yield_reason() -> str | None:
             if should_stop is not None:
@@ -1913,6 +1930,14 @@ class ToolAgent:
 
                     if content or reasoning:
                         messages.append(assistant_message)
+                    review = self._reviewer.observe(
+                        "assistant", {"content": content, "reasoning": raw_reasoning}, "no tool call",
+                    )
+                    if review is not None:
+                        append_transcript("ANALYZE REVIEWER", json.dumps(review.__dict__))
+                        if review.outcome == "stop":
+                            reviewer_stop_reason = review.message
+                            break
                     yielded_control_reason = control_yield_reason()
                     if yielded_control_reason is not None:
                         break
@@ -1934,6 +1959,8 @@ class ToolAgent:
                         "then call `action(actions)` inside Python with the best valid action or ordered batch that your code selected. "
                         f"{TOOL_CALL_FORMAT_GUIDANCE}"
                     )
+                    if review is not None:
+                        followup_prompt += "\n" + review.message
                     append_transcript("USER PROMPT", followup_prompt)
                     messages.append({"role": "user", "content": followup_prompt})
                     continue
@@ -1964,16 +1991,28 @@ class ToolAgent:
                         rendered_tool_call or (json.dumps(arguments, indent=2) if arguments else "{}"),
                     )
                     dispatch = self._dispatch_tool(state_path, tool_name, arguments)
+                    review = self._reviewer.observe(
+                        tool_name, arguments, dispatch.content, step_executed=dispatch.step_executed,
+                    )
+                    tool_feedback = dispatch.content
+                    if review is not None:
+                        append_transcript("ANALYZE REVIEWER", json.dumps(review.__dict__))
+                        tool_feedback = add_review_feedback(tool_feedback, review)
+                        if review.outcome == "stop":
+                            reviewer_stop_reason = review.message
                     if dispatch.step_executed:
                         step_executed = True
-                    append_transcript(f"TOOL RESULT: {tool_name}", _render_tool_result_display(dispatch.content))
+                    append_transcript(f"TOOL RESULT: {tool_name}", _render_tool_result_display(tool_feedback))
                     messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": tool_call.get("id", ""),
-                            "content": dispatch.content,
+                            "content": tool_feedback,
                         }
                     )
+                    if reviewer_stop_reason is not None:
+                        preserve_history = False
+                        break
                     if dispatch.step_executed:
                         if tool_index < len(tool_calls) - 1:
                             preserve_history = False
@@ -1983,7 +2022,7 @@ class ToolAgent:
                         if tool_index < len(tool_calls) - 1:
                             preserve_history = False
                         break
-                if yielded_control_reason is not None:
+                if reviewer_stop_reason is not None or yielded_control_reason is not None:
                     break
                 if step_executed:
                     break
@@ -2034,6 +2073,8 @@ class ToolAgent:
 
         if step_executed:
             status_message = "Step executed."
+        elif reviewer_stop_reason is not None:
+            status_message = reviewer_stop_reason
         elif yielded_control_reason is not None:
             status_message = f"Yielded control to solver: {yielded_control_reason}."
         else:
@@ -2050,6 +2091,10 @@ class ToolAgent:
             f"yield_seconds: {self._yield_seconds if self._yield_seconds is not None else 'disabled'}\n"
             f"available_tools: python\n"
             f"python_timeout_seconds: {self._python_timeout}\n"
+            f"reviewer_enabled: {self._reviewer.enabled}\n"
+            f"reviewer_warn_repeats: {self._reviewer.warn_repeats}\n"
+            f"reviewer_stop_repeats: {self._reviewer.stop_repeats}\n"
+            f"reviewer_window: {self._reviewer.window}\n"
             f"history_messages: {len(self._history_messages)}\n"
             f"step_executed: {step_executed}\n"
             f"message: {status_message}"
@@ -2072,4 +2117,5 @@ class ToolAgent:
             step_executed=step_executed,
             reasoning=captured_reasoning,
             yielded_control=yielded_control_reason is not None,
+            reviewer_stop_reason=reviewer_stop_reason,
         )

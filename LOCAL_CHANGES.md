@@ -33,4 +33,35 @@ python -m unittest discover -s tests -p test_deepseek_adapter.py -v
 Nine regression tests pass. The parent workspace also verified LS20 and VC33 using a
 local mock Chat Completions server, images and Python tool execution. This is interface
 validation; the context fix has not yet been evaluated in a fresh live model run.
-There is no added cross-analysis no-action limit.
+## Analysis reviewer
+
+The deterministic reviewer tracks tool inputs and feedback across `analyze()` calls
+while the observation and action count remain unchanged. Python code is compared by
+AST, ignoring formatting and comments. It also detects identical assistant replies
+that never call a tool. It performs no additional model inference.
+
+Within the last 12 checks, the third occurrence of an identical input/result pair
+adds corrective feedback to the tool response. The fifth occurrence ends the game
+normally (`gave_up`) with a `reviewer:` solver note, allowing other games to continue.
+An executed environment action or changed observation resets the repetition history.
+Alternating two repeated checks is detected; new checks or changed results are allowed.
+Review decisions and thresholds are included in the analyzer transcript.
+
+| Environment variable | Default |
+| --- | --- |
+| `LOCAL_ANALYZER_REVIEWER_ENABLED` | `true` |
+| `LOCAL_ANALYZER_REVIEWER_WARN_REPEATS` | `3` |
+| `LOCAL_ANALYZER_REVIEWER_STOP_REPEATS` | `5` |
+| `LOCAL_ANALYZER_REVIEWER_WINDOW` | `12` |
+
+The stop threshold is at least one greater than the warning threshold, and the window
+is at least as large as the stop threshold. This detects exact repeated behavior,
+not all semantically redundant reasoning. Identical truncated output can hide changes;
+thresholds may need tuning for a model/game. The guard does not force arbitrary actions
+and does not stop novel analysis simply because no action has occurred yet.
+
+Run all 19 regression tests with `python -m unittest discover -s tests -v`.
+The parent workspace verified two complete mock games: each warns and finishes after
+five repeated checks, including across analysis boundaries. Offline replay detects the
+observed G50T, LS20 and LP85 loops. Replay does not simulate how a live model would
+respond to the corrective feedback; live model performance remains untested.
