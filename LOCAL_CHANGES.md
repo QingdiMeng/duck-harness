@@ -60,7 +60,10 @@ not all semantically redundant reasoning. Identical truncated output can hide ch
 thresholds may need tuning for a model/game. The guard does not force arbitrary actions
 and does not stop novel analysis simply because no action has occurred yet.
 
-Run all 19 regression tests with `python -m unittest discover -s tests -v`.
+Stopping reports generated tokens since the last environment action in the game's
+`final_generated_tokens`, so non-action analysis is included in benchmark token totals.
+
+Run all 21 regression tests with `python -m unittest discover -s tests -v`.
 The parent workspace verified two complete mock games: each warns and finishes after
 five repeated checks, including across analysis boundaries. Offline replay detects the
 observed G50T, LS20 and LP85 loops. Replay does not simulate how a live model would

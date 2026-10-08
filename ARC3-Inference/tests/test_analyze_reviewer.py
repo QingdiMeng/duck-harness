@@ -2,6 +2,7 @@ import copy
 import json
 from pathlib import Path
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -126,6 +127,19 @@ class AnalyzerIntegrationTests(unittest.TestCase):
         self.assertTrue(second.step_executed)
         self.assertIsNone(third.reviewer_stop_reason)
 
+    def test_repeated_text_without_tools_is_stopped(self):
+        agent = self.make_agent()
+        completion = Mock(return_value=_ChatCompletionResult(
+            message={"role": "assistant", "content": "I will inspect again."}, finish_reason="stop"))
+        agent._chat_completion = completion
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state.json"
+            write_runtime_state(state, current_frame=Frame(((0,),), 0, 1), history=[])
+            results = [agent.analyze(state, 0, valid_actions=["UP"]) for _ in range(3)]
+        self.assertIn("Repeated analysis stopped", results[-1].reviewer_stop_reason)
+        self.assertEqual(completion.call_count, 5)
+        agent._dispatch_tool.assert_not_called()
+
     def test_solver_finishes_game_when_reviewer_stops(self):
         from inference.framework.solver import _HarnessGameSession
         run = SimpleNamespace(solver_analysis_html=None, final_score=None,
@@ -158,6 +172,21 @@ class AnalyzerIntegrationTests(unittest.TestCase):
         self.assertEqual(run.solver_note, "reviewer: repeated check")
         session.analyzer.analyze.assert_called_once()
         session._finish_if_needed.assert_called_once()
+
+    def test_finish_accounts_for_unassigned_tokens_once(self):
+        from inference.framework.solver import _HarnessGameSession
+        run = SimpleNamespace(final_score=None, state="playing")
+        session = _HarnessGameSession.__new__(_HarnessGameSession)
+        session.token_baseline = 70
+        session.analyzer = SimpleNamespace(generated_tokens=100)
+        session.stop_event = threading.Event()
+        def finish(**kwargs):
+            run.final_score = 0
+        session.game = SimpleNamespace(game_run=run, finish_game=Mock(side_effect=finish))
+        session._finish_if_needed()
+        session._finish_if_needed()
+        session.game.finish_game.assert_called_once_with(generated_tokens=30, uncached_input_tokens=0)
+        self.assertEqual(session.token_baseline, 100)
 
 
 if __name__ == "__main__":
