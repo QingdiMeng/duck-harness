@@ -1,0 +1,88 @@
+{
+  "passed": true,
+  "criteria": {
+    "harness_exited_cleanly": true,
+    "sdk_scoring_succeeded": true,
+    "all_four_games_finished_without_crash": true,
+    "observations_retained": true,
+    "reviewer_warning_observed": true,
+    "persistent_loop_stopped": true,
+    "stopped_games_have_reviewer_note": true,
+    "normal_control_still_acts": true
+  },
+  "commit": "92704b390e75b3a4b63d82d3a8b129bc572ea375",
+  "wallclock_seconds": 602.5,
+  "requests": 114,
+  "requests_without_user": 0,
+  "games": [
+    {
+      "game": "g50t-5849a774",
+      "state": "gave_up",
+      "actions": 30,
+      "levels": 0,
+      "generated_tokens": 9494,
+      "final_generated_tokens": 0,
+      "wallclock_seconds": 152.51418142400507,
+      "note": "tokens=9494",
+      "reviewer_decisions": [],
+      "max_analyses_at_one_action_count": 1
+    },
+    {
+      "game": "ls20-9607627b",
+      "state": "gave_up",
+      "actions": 16,
+      "levels": 0,
+      "generated_tokens": 10645,
+      "final_generated_tokens": 2591,
+      "wallclock_seconds": 335.0063501180048,
+      "note": "tokens=10645",
+      "reviewer_decisions": [],
+      "max_analyses_at_one_action_count": 2
+    },
+    {
+      "game": "lp85-305b61c3",
+      "state": "gave_up",
+      "actions": 14,
+      "levels": 1,
+      "generated_tokens": 6740,
+      "final_generated_tokens": 1177,
+      "wallclock_seconds": 454.6785271580011,
+      "note": "reviewer: Repeated analysis stopped: identical input and feedback occurred 5 times in the last 6 checks without an environment action.",
+      "reviewer_decisions": [
+        {
+          "outcome": "warn",
+          "fingerprint": "cb25aecfa88e3b89133723142c1e8a2e95c394278ddba1e564f0b153cba90b15",
+          "repeats": 3,
+          "message": "Reviewer: this identical check and feedback occurred 3 times without an environment action. Repeating it yields no new evidence. Change the hypothesis or inspection, or select a justified valid action. Do not repeat this check unless the observation or expected result changes. At 5 repetitions in the recent window, this game will stop.",
+          "analysis_step": 7,
+          "action_count": 14
+        },
+        {
+          "outcome": "stop",
+          "fingerprint": "cb25aecfa88e3b89133723142c1e8a2e95c394278ddba1e564f0b153cba90b15",
+          "repeats": 5,
+          "message": "Repeated analysis stopped: identical input and feedback occurred 5 times in the last 6 checks without an environment action.",
+          "analysis_step": 7,
+          "action_count": 14
+        }
+      ],
+      "max_analyses_at_one_action_count": 2
+    },
+    {
+      "game": "vc33-5430563c",
+      "state": "gave_up",
+      "actions": 30,
+      "levels": 1,
+      "generated_tokens": 7939,
+      "final_generated_tokens": 0,
+      "wallclock_seconds": 599.5998308830021,
+      "note": "tokens=7939",
+      "reviewer_decisions": [],
+      "max_analyses_at_one_action_count": 1
+    }
+  ],
+  "limitations": [
+    "Four public games only; no claim about hidden-set score.",
+    "Rule reviewer detects repeated inputs/results, not all semantic redundancy."
+  ]
+}

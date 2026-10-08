@@ -67,4 +67,8 @@ Run all 21 regression tests with `python -m unittest discover -s tests -v`.
 The parent workspace verified two complete mock games: each warns and finishes after
 five repeated checks, including across analysis boundaries. Offline replay detects the
 observed G50T, LS20 and LP85 loops. Replay does not simulate how a live model would
-respond to the corrective feedback; live model performance remains untested.
+respond to the corrective feedback.
+
+Real Strata acceptance of commit `92704b3` passed on four games, including an LP85
+warning and stop followed by normal VC33 execution. See
+[validation/reviewer](validation/reviewer/README.md) for results and reproduction details.
