@@ -1308,6 +1308,8 @@ class ToolAgent:
             )
 
         response = post_chat(payload)
+        if self._model.provider == "deepseek" and response.status_code in {400, 401, 402, 403, 404, 422}:
+            raise ValueError(f"DeepSeek rejected the request (HTTP {response.status_code}): {response.text[:1000]}")
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:
@@ -1606,19 +1608,23 @@ class ToolAgent:
         return _estimate_tokens(payload)
 
     def _drop_oldest_history_block(self, history: list[dict[str, Any]], *, preserve_recent: int) -> bool:
-        removable = len(history) - preserve_recent
-        if removable <= 0:
+        # Keep the latest observation, including its image, throughout a tool turn.
+        # Remove complete exchanges so tool results never lose their assistant call.
+        user_indices = [i for i, message in enumerate(history) if message.get("role") == "user"]
+        if not user_indices:
             return False
-        first = history.pop(0)
-        first_role = str(first.get("role", "")).strip()
-        if first_role in {"assistant", "tool"}:
-            while history and history[0].get("role") == "tool" and len(history) > preserve_recent:
-                history.pop(0)
+        latest_user = user_indices[-1]
+        if latest_user > 0 and len(history) - latest_user >= preserve_recent:
+            del history[:latest_user]
             return True
-        while history and history[0].get("role") == "tool" and len(history) > preserve_recent:
-            history.pop(0)
-        while history and history[0].get("role") != "user" and len(history) > preserve_recent:
-            history.pop(0)
+        exchange_starts = [i for i in range(latest_user + 1, len(history))
+                           if history[i].get("role") == "assistant"]
+        if len(exchange_starts) < 2:
+            return False
+        next_exchange = exchange_starts[1]
+        if len(history) - next_exchange < preserve_recent:
+            return False
+        del history[latest_user + 1:next_exchange]
         return True
 
     def _keep_recent_history_turns(
@@ -1664,9 +1670,11 @@ class ToolAgent:
             and str(history[0].get("role", "")).strip() != "user"
             and len(trimmed_history) > len(history)
         ):
-            previous_message = trimmed_history[len(trimmed_history) - len(history) - 1]
-            if str(previous_message.get("role", "")).strip() == "user":
-                history = [previous_message, *history]
+            preceding = trimmed_history[:len(trimmed_history) - len(history)]
+            for previous_message in reversed(preceding):
+                if str(previous_message.get("role", "")).strip() == "user":
+                    history = [previous_message, *history]
+                    break
         return self._drop_until_first_user_message(history)
 
     def _trim_messages_for_context(
@@ -1885,11 +1893,15 @@ class ToolAgent:
                     response_meta,
                 )
                 assistant_message: dict[str, Any] = {"role": "assistant"}
+                if self._model.provider == "deepseek":
+                    # Display text may be normalized; API history must remain verbatim.
+                    assistant_message["reasoning_content"] = result.message.get("reasoning_content") or ""
 
                 if reasoning:
                     captured_reasoning = reasoning
                     append_transcript("THINKING", reasoning)
-                    assistant_message["reasoning"] = reasoning
+                    if self._model.provider != "deepseek":
+                        assistant_message["reasoning"] = reasoning
 
                 if not tool_calls:
                     if content:

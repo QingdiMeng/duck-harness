@@ -62,6 +62,14 @@ def build_chat_payload(
             payload["tool_choice"] = tool_choice
 
     normalized = normalize_provider(provider)
+    if normalized == "deepseek":
+        # DeepSeek tool conversations require the original reasoning_content.
+        payload["messages"] = [dict(message) for message in messages]
+        for message in payload["messages"]:
+            message.pop("reasoning", None)
+        payload["thinking"] = {"type": "enabled" if thinking else "disabled"}
+        if thinking:
+            payload.pop("temperature", None)
     if normalized == "vllm":
         if top_k > 0:
             payload["top_k"] = top_k
