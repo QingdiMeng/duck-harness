@@ -82,3 +82,51 @@ Full logs remain at `/home/xiaoxiaohu/agc/runs/duck-thinking-solving-20261009`.
 python tools/validate_solving.py --root /home/xiaoxiaohu/agc \
   --output /home/xiaoxiaohu/agc/runs/new-solving-validation --commit "$(git rev-parse HEAD)"
 ```
+
+## Medium versus low effort
+
+The experiment machine tested commit `92a7f08` with explicit medium and low effort,
+serially on the same loaded Strata service. Both used seed 42, temperature 1.0,
+top_p 0.95, top_k 20, thinking enabled, no output cap, 32K context, and the same
+LP85/G50T/LS20/VC33 order with 30 actions and ten minutes per game. Transport tests
+verified the effort in the actual HTTP payload; all 34 regression tests passed on
+both hosts. Every request-log event recorded the configured effort.
+
+| Metric | Medium | Low |
+| --- | ---: | ---: |
+| Levels completed | 2 | 3 |
+| Full games won | 0 | 0 |
+| Actions executed | 75 | 114 |
+| Wallclock minutes, including scoring | 34.21 | 31.64 |
+| Generated tokens | 122029 | 109479 |
+| Requests / responses | 110 / 110 | 136 / 136 |
+| Mean generated tokens per response | 1109.35 | 804.99 |
+| Total HTTP response latency seconds | 2039.87 | 1854.83 |
+| HTTP errors / length finishes | 0 / 0 | 0 / 0 |
+| Local reconstructed SDK score | 0.8294753086 | 1.6463805206 |
+
+| Game | Medium levels / actions | Low levels / actions |
+| --- | --- | --- |
+| LP85 | 1 / 18 | 1 / 30 |
+| G50T | 0 / 8 | 0 / 30 |
+| LS20 | 0 / 19 | 1 / 24 |
+| VC33 | 1 / 30 | 1 / 30 |
+
+In this pair, low used 10.28% fewer generated tokens and 7.51% less wallclock time,
+while completing LS20's first level, which medium did not complete. Mean output per
+request fell by about 27.4%, but request count increased by 23.6%, limiting the overall
+savings. Low completed LP85's first level in six actions versus medium's fifteen;
+both completed VC33's first level in eighteen actions. Neither effort solved a full
+game. Shorter effort did not force short replies: medium had a 7018-token response.
+
+This is one trajectory per effort, not a statistical performance claim. Seed 42 makes
+the settings reproducible but does not establish confidence or generalization. The
+historical xhigh run had no fixed seed and is only a reference. Scores are local SDK
+reconstructions, not Kaggle evaluation scores. No default effort was changed.
+
+Reports: [comparison](effort-comparison-92a7f08.json),
+[medium](strata-medium-92a7f08.json), [low](strata-low-92a7f08.json).
+Full logs remain in `/home/xiaoxiaohu/agc/runs/duck-effort-comparison-20261009/{medium,low}`.
+On the prepared experiment host, reproduce via `scripts/compare_duck_effort.py`; the
+same orchestration is saved as `tools/compare_reasoning_effort.py`. The orchestrator
+expects the solving runner at the host's `scripts/validate_duck_solving.py` path.
