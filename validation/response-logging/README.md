@@ -39,3 +39,46 @@ thinking history continuity and action execution, not improved solving performan
 
 Report: [strata-unlimited-20261009.json](strata-unlimited-20261009.json).
 Full logs: `/home/xiaoxiaohu/agc/runs/duck-thinking-unlimited-20261009`.
+
+## Four-game solving validation
+
+A fresh real-model run of commit `1d4a74d` tested LP85, G50T, LS20 and VC33 serially
+with thinking enabled, no max_tokens cap, temperature 1.0, top_p 0.95 and top_k 20.
+Each game had a 30-action cap and ten-minute active-time budget. The total test took
+2050.67 seconds (34.18 minutes), including local SDK scoring. Both processes exited 0.
+
+| Game | Completed levels | Actions | Stop cause | Generated tokens |
+| --- | ---: | ---: | --- | ---: |
+| LP85 | 1 / 8 | 30 | Action cap | 26609 |
+| G50T | 0 / 7 | 17 | Time budget | 37002 |
+| LS20 | 0 / 7 | 9 | Time budget | 35644 |
+| VC33 | 1 / 7 | 30 | Action cap | 23953 |
+
+All 94 requests returned normally with `finish_reason=tool_calls`; no HTTP errors or
+length finishes occurred. Maximum single-request input plus output was 30080 tokens,
+below the 32768 server context. The largest completion was 5993 tokens. Generation
+across requests totaled 123208 tokens, which is not a single context length.
+No exact-repetition reviewer warnings/stops occurred. G50T and LS20 nevertheless
+spent substantial time inspecting state without acting: semantic redundancy and slow
+rule discovery remain outside the exact-pair reviewer mechanism.
+
+The run completed two levels and zero full games. Saved action events were rescored
+with the official local SDK, yielding 0.8038194444; this is a local reconstruction,
+not a Kaggle evaluation score. The native harness score is zero because baseline
+metadata is unavailable in simulation mode; use the separate SDK report.
+
+This is one stochastic trajectory per game under limited action/time budgets, not
+proof of hidden-set performance or improved solving compared to prior runs. The older
+non-thinking run had different time and output limits, so there is no controlled
+comparison. Earlier compaction is also not implemented: budget trimming deletes
+older exchanges, while optional world-model notes are extracted only from assistant
+content. Thinking history continuity does not provide automatic semantic compression.
+
+Reports: [solving](strata-solving-1d4a74d.json) and
+[token/stop diagnostics](strata-solving-diagnostics-1d4a74d.json).
+Full logs remain at `/home/xiaoxiaohu/agc/runs/duck-thinking-solving-20261009`.
+
+```sh
+python tools/validate_solving.py --root /home/xiaoxiaohu/agc \
+  --output /home/xiaoxiaohu/agc/runs/new-solving-validation --commit "$(git rev-parse HEAD)"
+```

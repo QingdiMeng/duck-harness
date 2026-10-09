@@ -1,0 +1,66 @@
+[
+  {
+    "game": "lp85",
+    "requests": 19,
+    "responses": 19,
+    "http_errors": 0,
+    "finish_reasons": {
+      "tool_calls": 19
+    },
+    "max_prompt_tokens": 27246,
+    "max_completion_tokens": 5365,
+    "max_total_tokens": 27959,
+    "generated_tokens": 26609,
+    "max_response_seconds": 78.37,
+    "time_budget_stop_observed": false,
+    "reviewer_decisions": 0
+  },
+  {
+    "game": "g50t",
+    "requests": 27,
+    "responses": 27,
+    "http_errors": 0,
+    "finish_reasons": {
+      "tool_calls": 27
+    },
+    "max_prompt_tokens": 23109,
+    "max_completion_tokens": 5993,
+    "max_total_tokens": 29102,
+    "generated_tokens": 37002,
+    "max_response_seconds": 89.55,
+    "time_budget_stop_observed": true,
+    "reviewer_decisions": 0
+  },
+  {
+    "game": "ls20",
+    "requests": 28,
+    "responses": 28,
+    "http_errors": 0,
+    "finish_reasons": {
+      "tool_calls": 28
+    },
+    "max_prompt_tokens": 26811,
+    "max_completion_tokens": 3269,
+    "max_total_tokens": 30080,
+    "generated_tokens": 35644,
+    "max_response_seconds": 50.7,
+    "time_budget_stop_observed": true,
+    "reviewer_decisions": 0
+  },
+  {
+    "game": "vc33",
+    "requests": 20,
+    "responses": 20,
+    "http_errors": 0,
+    "finish_reasons": {
+      "tool_calls": 20
+    },
+    "max_prompt_tokens": 24321,
+    "max_completion_tokens": 5013,
+    "max_total_tokens": 29334,
+    "generated_tokens": 23953,
+    "max_response_seconds": 79.64,
+    "time_budget_stop_observed": false,
+    "reviewer_decisions": 0
+  }
+]
