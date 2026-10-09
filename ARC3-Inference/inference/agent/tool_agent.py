@@ -10,10 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 from urllib.parse import urlparse, urlunparse
+from uuid import uuid4
 
 import requests
 
 from inference.agent.action_names import to_engine_action, to_model_action
+from inference.agent.analyze_reviewer import AnalyzeReviewer, add_review_feedback
 from inference.agent.prompts import (
     COMPACT_TOOL_SESSION_ADDENDUM,
     GAME_OVERVIEW_ADDENDUM,
@@ -142,10 +144,15 @@ _LOCAL_ANALYZER_TOOL_TIMEOUT = _get_env_int("LOCAL_ANALYZER_TOOL_TIMEOUT", 30)
 _LOCAL_ANALYZER_TOOL_OUTPUT_TOKENS = _get_env_int("LOCAL_ANALYZER_TOOL_OUTPUT_TOKENS", 1024)
 _LOCAL_ANALYZER_YIELD_SECONDS = _get_env_float("LOCAL_ANALYZER_YIELD_SECONDS", 0.0)
 _LOCAL_ANALYZER_ENABLE_THINKING = _get_env_bool("LOCAL_ANALYZER_ENABLE_THINKING", True)
+_LOCAL_ANALYZER_REASONING_EFFORT = os.environ.get("LOCAL_ANALYZER_REASONING_EFFORT", "").strip().lower() or None
 _LOCAL_ANALYZER_TEMPERATURE = _get_env_float("LOCAL_ANALYZER_TEMPERATURE", 0.6)
 _LOCAL_ANALYZER_TOP_P = _get_env_float("LOCAL_ANALYZER_TOP_P", 0.95)
 _LOCAL_ANALYZER_TOP_K = _get_env_int("LOCAL_ANALYZER_TOP_K", 20)
 _LOCAL_ANALYZER_SEED = _get_env_int("LOCAL_ANALYZER_SEED", -1)
+_LOCAL_ANALYZER_REVIEWER_ENABLED = _get_env_bool("LOCAL_ANALYZER_REVIEWER_ENABLED", True)
+_LOCAL_ANALYZER_REVIEWER_WARN_REPEATS = _get_env_int("LOCAL_ANALYZER_REVIEWER_WARN_REPEATS", 3)
+_LOCAL_ANALYZER_REVIEWER_STOP_REPEATS = _get_env_int("LOCAL_ANALYZER_REVIEWER_STOP_REPEATS", 5)
+_LOCAL_ANALYZER_REVIEWER_WINDOW = _get_env_int("LOCAL_ANALYZER_REVIEWER_WINDOW", 12)
 _REQUEST_SAFETY_MARGIN_TOKENS = 512
 _CONTEXT_OVERFLOW_RETRY_TRIM_TOKENS = 512
 _PERSISTENT_HISTORY_ASSISTANT_TURNS = 30
@@ -372,6 +379,7 @@ class AnalyzerTurnResult:
     retryable_failure: bool = False
     reasoning: str = ""
     yielded_control: bool = False
+    reviewer_stop_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -788,6 +796,12 @@ def _append_request_snapshot(
     analysis_step: int | None = None,
     action: int | None = None,
     request_index_within_turn: int | None = None,
+    request_id: str | None = None,
+    response_body: Any = None,
+    response_text: str | None = None,
+    http_status: int | None = None,
+    latency_seconds: float | None = None,
+    error: str | None = None,
 ) -> None:
     payload = {
         "messages": messages,
@@ -805,6 +819,23 @@ def _append_request_snapshot(
         payload["action"] = action
     if request_index_within_turn is not None:
         payload["request_index_within_turn"] = request_index_within_turn
+    if request_id is not None:
+        payload["request_id"] = request_id
+    payload["timestamp_unix"] = time.time()
+    if _LOCAL_ANALYZER_REASONING_EFFORT:
+        payload["reasoning_effort"] = _LOCAL_ANALYZER_REASONING_EFFORT
+    if event == "response":
+        payload["response"] = response_body
+        if isinstance(response_body, dict) and "usage" in response_body:
+            payload["usage"] = response_body["usage"]
+    if response_text is not None:
+        payload["response_text"] = response_text
+    if http_status is not None:
+        payload["http_status"] = http_status
+    if latency_seconds is not None:
+        payload["latency_seconds"] = latency_seconds
+    if error is not None:
+        payload["error"] = error
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(
             json.dumps(
@@ -930,6 +961,12 @@ class ToolAgent:
         self._timeout = None if configured_timeout is None or configured_timeout <= 0 else float(configured_timeout)
         self._api_key = str(api_key or "").strip()
         self._tool_steps = None if _LOCAL_ANALYZER_TOOL_STEPS <= 0 else max(1, _LOCAL_ANALYZER_TOOL_STEPS)
+        self._reviewer = AnalyzeReviewer(
+            enabled=_LOCAL_ANALYZER_REVIEWER_ENABLED,
+            warn_repeats=_LOCAL_ANALYZER_REVIEWER_WARN_REPEATS,
+            stop_repeats=_LOCAL_ANALYZER_REVIEWER_STOP_REPEATS,
+            window=_LOCAL_ANALYZER_REVIEWER_WINDOW,
+        )
         self._python_timeout = min(30, max(1, _LOCAL_ANALYZER_TOOL_TIMEOUT))
         self._yield_seconds = None if _LOCAL_ANALYZER_YIELD_SECONDS <= 0 else float(_LOCAL_ANALYZER_YIELD_SECONDS)
         configured_max_output = _LOCAL_ANALYZER_MAX_OUTPUT
@@ -977,6 +1014,7 @@ class ToolAgent:
         if self._session_runtime_dir != runtime_dir:
             self._session_runtime_dir = runtime_dir
             self._history_messages = []
+            self._reviewer.reset()
             self._session_total_tokens = 0
             self._session_generated_tokens = 0
             self._last_step_summary = None
@@ -1285,6 +1323,7 @@ class ToolAgent:
         *,
         tools: list[dict[str, Any]] | None,
         request_timeout_seconds: float | None = None,
+        response_observer: Callable[[requests.Response], None] | None = None,
     ) -> _ChatCompletionResult:
         payload = build_chat_payload(
             provider=self._model.provider,
@@ -1298,6 +1337,7 @@ class ToolAgent:
             tools=tools,
             tool_choice=_request_tool_choice(tools),
             seed=_LOCAL_ANALYZER_SEED,
+            reasoning_effort=_LOCAL_ANALYZER_REASONING_EFFORT,
         )
         def post_chat(request_payload: dict[str, Any]) -> requests.Response:
             return requests.post(
@@ -1308,6 +1348,9 @@ class ToolAgent:
             )
 
         response = post_chat(payload)
+        # Capture the complete HTTP body before parsing, normalizing, or raising errors.
+        if response_observer is not None:
+            response_observer(response)
         if self._model.provider == "deepseek" and response.status_code in {400, 401, 402, 403, 404, 422}:
             raise ValueError(f"DeepSeek rejected the request (HTTP {response.status_code}): {response.text[:1000]}")
         try:
@@ -1758,6 +1801,9 @@ class ToolAgent:
 
         append_transcript("SYSTEM PROMPT", self._system_prompt)
         append_transcript("USER PROMPT", user_prompt)
+        self._reviewer.begin_state((str(state_path.resolve()), action_num,
+                                    current_frame.level if current_frame is not None else None,
+                                    current_frame.ascii if current_frame is not None else None))
 
         previous_history_messages = list(self._history_messages)
         preserve_history = True
@@ -1772,8 +1818,12 @@ class ToolAgent:
         latest_request_tools: list[dict[str, Any]] | None = None
         latest_request_tool_choice: str | None = None
         latest_request_index = 0
+        latest_request_id: str | None = None
+        request_started_at = 0.0
+        request_error_logged = False
         turn_started_at = time.monotonic()
         yielded_control_reason: str | None = None
+        reviewer_stop_reason: str | None = None
 
         def control_yield_reason() -> str | None:
             if should_stop is not None:
@@ -1800,6 +1850,9 @@ class ToolAgent:
                 latest_request_tools = json.loads(json.dumps(tools))
                 latest_request_tool_choice = tool_choice
                 latest_request_index = turn_count
+                latest_request_id = uuid4().hex
+                request_started_at = time.monotonic()
+                request_error_logged = False
                 _write_prompt_log_snapshot(
                     prompt_log,
                     model_id=self._model.model_id,
@@ -1826,22 +1879,49 @@ class ToolAgent:
                             analysis_step=analysis_step,
                             action=display_action_num,
                             request_index_within_turn=latest_request_index,
+                            request_id=latest_request_id,
                         )
+                        def record_response(response: requests.Response) -> None:
+                            response_text = None
+                            try:
+                                body = response.json()
+                            except ValueError:
+                                body = None
+                                response_text = response.text
+                            choices = body.get("choices") if isinstance(body, dict) else None
+                            finish_reason = None
+                            if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+                                finish_reason = choices[0].get("finish_reason")
+                            _append_request_snapshot(
+                                _resolve_request_log_path(state_path),
+                                messages=latest_request_messages,
+                                tools=latest_request_tools,
+                                event="response",
+                                tool_choice=latest_request_tool_choice,
+                                analysis_step=analysis_step,
+                                action=display_action_num,
+                                request_index_within_turn=latest_request_index,
+                                request_id=latest_request_id,
+                                finish_reason=finish_reason,
+                                response_body=body,
+                                response_text=response_text,
+                                http_status=response.status_code,
+                                latency_seconds=time.monotonic() - request_started_at,
+                            )
+                        request_kwargs["response_observer"] = record_response
                     result = self._chat_completion(messages, **request_kwargs)
                     self._accumulate_usage_tokens(result.usage)
+                except requests.RequestException as exc:
                     if self._save_request_logs:
                         _append_request_snapshot(
                             _resolve_request_log_path(state_path),
-                            messages=latest_request_messages,
-                            tools=latest_request_tools,
-                            event="response",
-                            tool_choice=latest_request_tool_choice,
-                            analysis_step=analysis_step,
-                            action=display_action_num,
+                            messages=latest_request_messages, tools=latest_request_tools,
+                            event="error", request_id=latest_request_id,
+                            analysis_step=analysis_step, action=display_action_num,
                             request_index_within_turn=latest_request_index,
-                            finish_reason=result.finish_reason,
+                            error=str(exc), latency_seconds=time.monotonic() - request_started_at,
                         )
-                except requests.RequestException as exc:
+                        request_error_logged = True
                     if not _is_context_length_error(exc):
                         raise
                     trimmed_messages = self._trim_messages_for_context(
@@ -1893,14 +1973,15 @@ class ToolAgent:
                     response_meta,
                 )
                 assistant_message: dict[str, Any] = {"role": "assistant"}
-                if self._model.provider == "deepseek":
+                if self._model.provider in {"deepseek", "vllm"}:
+                    # Strata/Qwen and DeepSeek consume this field for thinking history.
                     # Display text may be normalized; API history must remain verbatim.
                     assistant_message["reasoning_content"] = result.message.get("reasoning_content") or ""
 
                 if reasoning:
                     captured_reasoning = reasoning
                     append_transcript("THINKING", reasoning)
-                    if self._model.provider != "deepseek":
+                    if self._model.provider not in {"deepseek", "vllm"}:
                         assistant_message["reasoning"] = reasoning
 
                 if not tool_calls:
@@ -1913,6 +1994,14 @@ class ToolAgent:
 
                     if content or reasoning:
                         messages.append(assistant_message)
+                    review = self._reviewer.observe(
+                        "assistant", {"content": content, "reasoning": raw_reasoning}, "no tool call",
+                    )
+                    if review is not None:
+                        append_transcript("ANALYZE REVIEWER", json.dumps(review.__dict__))
+                        if review.outcome == "stop":
+                            reviewer_stop_reason = review.message
+                            break
                     yielded_control_reason = control_yield_reason()
                     if yielded_control_reason is not None:
                         break
@@ -1934,6 +2023,8 @@ class ToolAgent:
                         "then call `action(actions)` inside Python with the best valid action or ordered batch that your code selected. "
                         f"{TOOL_CALL_FORMAT_GUIDANCE}"
                     )
+                    if review is not None:
+                        followup_prompt += "\n" + review.message
                     append_transcript("USER PROMPT", followup_prompt)
                     messages.append({"role": "user", "content": followup_prompt})
                     continue
@@ -1964,16 +2055,28 @@ class ToolAgent:
                         rendered_tool_call or (json.dumps(arguments, indent=2) if arguments else "{}"),
                     )
                     dispatch = self._dispatch_tool(state_path, tool_name, arguments)
+                    review = self._reviewer.observe(
+                        tool_name, arguments, dispatch.content, step_executed=dispatch.step_executed,
+                    )
+                    tool_feedback = dispatch.content
+                    if review is not None:
+                        append_transcript("ANALYZE REVIEWER", json.dumps(review.__dict__))
+                        tool_feedback = add_review_feedback(tool_feedback, review)
+                        if review.outcome == "stop":
+                            reviewer_stop_reason = review.message
                     if dispatch.step_executed:
                         step_executed = True
-                    append_transcript(f"TOOL RESULT: {tool_name}", _render_tool_result_display(dispatch.content))
+                    append_transcript(f"TOOL RESULT: {tool_name}", _render_tool_result_display(tool_feedback))
                     messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": tool_call.get("id", ""),
-                            "content": dispatch.content,
+                            "content": tool_feedback,
                         }
                     )
+                    if reviewer_stop_reason is not None:
+                        preserve_history = False
+                        break
                     if dispatch.step_executed:
                         if tool_index < len(tool_calls) - 1:
                             preserve_history = False
@@ -1983,7 +2086,7 @@ class ToolAgent:
                         if tool_index < len(tool_calls) - 1:
                             preserve_history = False
                         break
-                if yielded_control_reason is not None:
+                if reviewer_stop_reason is not None or yielded_control_reason is not None:
                     break
                 if step_executed:
                     break
@@ -2007,6 +2110,15 @@ class ToolAgent:
             log.warning("analyzer request failed at action %d: %s", display_action_num, exc)
             return AnalyzerTurnResult(step_executed=False, retryable_failure=True, reasoning=captured_reasoning)
         except Exception as exc:
+            if self._save_request_logs and latest_request_id is not None and not request_error_logged:
+                _append_request_snapshot(
+                    _resolve_request_log_path(state_path),
+                    messages=latest_request_messages or [], tools=latest_request_tools,
+                    event="error", request_id=latest_request_id,
+                    analysis_step=analysis_step, action=display_action_num,
+                    request_index_within_turn=latest_request_index,
+                    error=str(exc), latency_seconds=time.monotonic() - request_started_at,
+                )
             append_transcript("ANALYZER STATUS", f"error: {exc}")
             preserve_history = False
             if latest_request_messages is not None:
@@ -2034,6 +2146,8 @@ class ToolAgent:
 
         if step_executed:
             status_message = "Step executed."
+        elif reviewer_stop_reason is not None:
+            status_message = reviewer_stop_reason
         elif yielded_control_reason is not None:
             status_message = f"Yielded control to solver: {yielded_control_reason}."
         else:
@@ -2042,6 +2156,7 @@ class ToolAgent:
         status = (
             f"model: {self._model.model_id}\n"
             f"base_url: {self._model.base_url}\n"
+            f"reasoning_effort: {_LOCAL_ANALYZER_REASONING_EFFORT or 'server default'}\n"
             f"max_output_tokens: {self._max_output_tokens if self._max_output_tokens is not None else 'server default'}\n"
             f"reply_reserve_tokens: {self._reply_reserve_tokens}\n"
             f"context_budget_tokens: {self._context_budget_tokens}\n"
@@ -2050,6 +2165,10 @@ class ToolAgent:
             f"yield_seconds: {self._yield_seconds if self._yield_seconds is not None else 'disabled'}\n"
             f"available_tools: python\n"
             f"python_timeout_seconds: {self._python_timeout}\n"
+            f"reviewer_enabled: {self._reviewer.enabled}\n"
+            f"reviewer_warn_repeats: {self._reviewer.warn_repeats}\n"
+            f"reviewer_stop_repeats: {self._reviewer.stop_repeats}\n"
+            f"reviewer_window: {self._reviewer.window}\n"
             f"history_messages: {len(self._history_messages)}\n"
             f"step_executed: {step_executed}\n"
             f"message: {status_message}"
@@ -2072,4 +2191,5 @@ class ToolAgent:
             step_executed=step_executed,
             reasoning=captured_reasoning,
             yielded_control=yielded_control_reason is not None,
+            reviewer_stop_reason=reviewer_stop_reason,
         )

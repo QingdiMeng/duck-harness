@@ -1,0 +1,191 @@
+{
+  "complete": true,
+  "wallclock_seconds": 3950.81,
+  "runs": [
+    {
+      "effort": "medium",
+      "seed": 42,
+      "levels_completed": 2,
+      "games_won": 0,
+      "actions": 75,
+      "generated_tokens": 122029,
+      "requests": 110,
+      "errors": 0,
+      "length_finishes": 0,
+      "wallclock_seconds": 2052.36,
+      "model_request_seconds": 2039.87,
+      "mean_tokens_per_response": 1109.35,
+      "games": [
+        {
+          "game": "lp85-305b61c3",
+          "state": "gave_up",
+          "levels_completed": 1,
+          "total_levels": 8,
+          "actions": 18,
+          "actions_per_level": [
+            15,
+            3,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "solver_note": "tokens=37026",
+          "generated_tokens": 37026
+        },
+        {
+          "game": "g50t-5849a774",
+          "state": "gave_up",
+          "levels_completed": 0,
+          "total_levels": 7,
+          "actions": 8,
+          "actions_per_level": [
+            8,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "solver_note": "tokens=36329",
+          "generated_tokens": 36329
+        },
+        {
+          "game": "ls20-9607627b",
+          "state": "gave_up",
+          "levels_completed": 0,
+          "total_levels": 7,
+          "actions": 19,
+          "actions_per_level": [
+            19,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "solver_note": "tokens=36241",
+          "generated_tokens": 36241
+        },
+        {
+          "game": "vc33-5430563c",
+          "state": "gave_up",
+          "levels_completed": 1,
+          "total_levels": 7,
+          "actions": 30,
+          "actions_per_level": [
+            18,
+            12,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "solver_note": "tokens=12433",
+          "generated_tokens": 12433
+        }
+      ],
+      "sdk_score": 0.8294753086419753
+    },
+    {
+      "effort": "low",
+      "seed": 42,
+      "levels_completed": 3,
+      "games_won": 0,
+      "actions": 114,
+      "generated_tokens": 109479,
+      "requests": 136,
+      "errors": 0,
+      "length_finishes": 0,
+      "wallclock_seconds": 1898.26,
+      "model_request_seconds": 1854.83,
+      "mean_tokens_per_response": 804.99,
+      "games": [
+        {
+          "game": "lp85-305b61c3",
+          "state": "gave_up",
+          "levels_completed": 1,
+          "total_levels": 8,
+          "actions": 30,
+          "actions_per_level": [
+            6,
+            24,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "solver_note": "tokens=22203",
+          "generated_tokens": 22203
+        },
+        {
+          "game": "g50t-5849a774",
+          "state": "gave_up",
+          "levels_completed": 0,
+          "total_levels": 7,
+          "actions": 30,
+          "actions_per_level": [
+            30,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "solver_note": "tokens=29888",
+          "generated_tokens": 29888
+        },
+        {
+          "game": "ls20-9607627b",
+          "state": "gave_up",
+          "levels_completed": 1,
+          "total_levels": 7,
+          "actions": 24,
+          "actions_per_level": [
+            23,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "solver_note": "tokens=39164",
+          "generated_tokens": 39164
+        },
+        {
+          "game": "vc33-5430563c",
+          "state": "gave_up",
+          "levels_completed": 1,
+          "total_levels": 7,
+          "actions": 30,
+          "actions_per_level": [
+            18,
+            12,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "solver_note": "tokens=18224",
+          "generated_tokens": 18224
+        }
+      ],
+      "sdk_score": 1.6463805206322535
+    }
+  ],
+  "limitations": [
+    "One trajectory per effort with seed 42; not a statistical performance claim.",
+    "Historical xhigh run used no fixed seed and is only a reference.",
+    "SDK scores are local reconstructions, not Kaggle evaluation scores."
+  ]
+}

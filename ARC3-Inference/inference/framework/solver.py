@@ -309,6 +309,10 @@ class _HarnessGameSession:
                         self.write_viewer_payload()
                 if result is None:
                     raise RuntimeError("Analyzer did not return a result.")
+                reviewer_stop_reason = getattr(result, "reviewer_stop_reason", None)
+                if reviewer_stop_reason:
+                    run.solver_note = f"reviewer: {reviewer_stop_reason}"
+                    break
                 if result.retryable_failure:
                     retry_analysis_step = analysis_step
                     if self.should_stop():
@@ -342,7 +346,10 @@ class _HarnessGameSession:
         if run is not None and run.final_score is None:
             if self.stop_event.is_set() and run.state == "playing":
                 run.state = "cancelled"
-            self.game.finish_game()
+            current_tokens = _analyzer_reported_tokens(self.analyzer)
+            remaining_tokens = max(0, current_tokens - self.token_baseline)
+            self.game.finish_game(generated_tokens=remaining_tokens, uncached_input_tokens=0)
+            self.token_baseline = current_tokens
 
     def _write_analysis_html(self) -> None:
         if self.solver.job_dir is None:
