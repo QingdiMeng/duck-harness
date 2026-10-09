@@ -17,6 +17,8 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--source", type=Path)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--thinking", action="store_true")
+    parser.add_argument("--max-output", type=int, default=0, help="0 omits max_tokens; server uses remaining context")
     args = parser.parse_args()
     root = args.root.resolve()
     source = (args.source or root / "external/Duck-official/ARC3-Inference").resolve()
@@ -29,9 +31,11 @@ def main():
         LOCAL_ANALYZER_PROVIDER="vllm",
         LOCAL_ANALYZER_BASE_URL="http://127.0.0.1:8081/v1",
         LOCAL_ANALYZER_MODEL_ID="qwen3.8-flash-next-coder-iq1_m",
-        LOCAL_ANALYZER_ENABLE_THINKING="false", LOCAL_ANALYZER_MAX_OUTPUT="1024",
+        LOCAL_ANALYZER_ENABLE_THINKING=str(args.thinking).lower(), LOCAL_ANALYZER_MAX_OUTPUT=str(args.max_output),
         LOCAL_ANALYZER_CONTEXT_WINDOW="32768", LOCAL_ANALYZER_TOOL_STEPS="12",
-        LOCAL_ANALYZER_TEMPERATURE="0", LOCAL_ANALYZER_TOP_P="1", LOCAL_ANALYZER_TOP_K="0",
+        LOCAL_ANALYZER_TEMPERATURE="1.0" if args.thinking else "0",
+        LOCAL_ANALYZER_TOP_P="0.95" if args.thinking else "1",
+        LOCAL_ANALYZER_TOP_K="20" if args.thinking else "0",
         LOCAL_ANALYZER_REVIEWER_ENABLED="true", LOCAL_ANALYZER_REVIEWER_WARN_REPEATS="3",
         LOCAL_ANALYZER_REVIEWER_STOP_REPEATS="5", LOCAL_ANALYZER_REVIEWER_WINDOW="12",
         MULTIMODAL_CONTEXT="current_grid", MULTIMODAL_UPSCALE="8", ONLY_RESET_LEVELS="true",
@@ -43,7 +47,8 @@ def main():
     if not health.get("loaded"):
         raise RuntimeError("Strata is not loaded")
     config = {"commit": args.commit, "health": health, "games": games,
-              "max_actions": 30, "per_game_minutes": 3, "reviewer": {"warn": 3, "stop": 5, "window": 12}}
+              "max_actions": 30, "per_game_minutes": 3,
+              "thinking": args.thinking, "max_output": args.max_output, "reviewer": {"warn": 3, "stop": 5, "window": 12}}
     (output / "acceptance-config.json").write_text(json.dumps(config, indent=2) + "\n")
     command = [sys.executable, "-u", "-m", "inference.framework.run", "--game", ",".join(games),
                "--environments-dir", str(root / "environment_files"), "--model", "local",

@@ -1969,14 +1969,15 @@ class ToolAgent:
                     response_meta,
                 )
                 assistant_message: dict[str, Any] = {"role": "assistant"}
-                if self._model.provider == "deepseek":
+                if self._model.provider in {"deepseek", "vllm"}:
+                    # Strata/Qwen and DeepSeek consume this field for thinking history.
                     # Display text may be normalized; API history must remain verbatim.
                     assistant_message["reasoning_content"] = result.message.get("reasoning_content") or ""
 
                 if reasoning:
                     captured_reasoning = reasoning
                     append_transcript("THINKING", reasoning)
-                    if self._model.provider != "deepseek":
+                    if self._model.provider not in {"deepseek", "vllm"}:
                         assistant_message["reasoning"] = reasoning
 
                 if not tool_calls:

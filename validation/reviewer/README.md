@@ -31,14 +31,14 @@ The machine-readable report is [strata-acceptance-92704b3.json](strata-acceptanc
 The full logs remain on the experiment machine at
 `~/agc/runs/duck-reviewer-strata-acceptance-final-20261009`.
 
-To reproduce with an already-loaded Strata service:
+To reproduce the historical capped acceptance with an already-loaded Strata service:
 
 ```sh
 python tools/accept_analyze_reviewer.py \
   --root /home/xiaoxiaohu/agc \
   --source /path/to/duck-harness/ARC3-Inference \
   --output /home/xiaoxiaohu/agc/runs/new-reviewer-acceptance \
-  --commit "$(git rev-parse HEAD)"
+  --commit "$(git rev-parse HEAD)" --max-output 1024
 ```
 
 This tests four public games. The rule reviewer does not detect every semantically

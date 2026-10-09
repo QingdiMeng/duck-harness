@@ -1,0 +1,23 @@
+{
+  "passed": true,
+  "thinking_history_verbatim": true,
+  "max_output": 0,
+  "temperature": 1.0,
+  "top_p": 0.95,
+  "top_k": 20,
+  "requests": 2,
+  "responses": 2,
+  "errors": 0,
+  "completion_tokens": [
+    177,
+    2994
+  ],
+  "finish_reasons": [
+    "tool_calls",
+    "tool_calls"
+  ],
+  "game": "lp85-305b61c3",
+  "actions": 1,
+  "levels": 0,
+  "state": "gave_up"
+}

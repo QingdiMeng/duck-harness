@@ -22,3 +22,20 @@ No DeepSeek cloud requests were made. This validates logging, not game-solving q
 ```sh
 python tools/validate_response_logs.py /path/to/requests.jsonl --require-reasoning
 ```
+
+## Unlimited-output thinking retest
+
+After restoring `reasoning_content` in Strata/Qwen history, a second LP85 smoke run
+used `LOCAL_ANALYZER_MAX_OUTPUT=0` (no max_tokens), thinking enabled, temperature 1.0,
+top_p 0.95 and top_k 20. Strata permits generation up to the remaining 32K context.
+The run had a one-action cap, a three-minute game budget and a 180-second timeout.
+
+Both responses finished with tool_calls: 177 and 2994 generated tokens, taking about
+3.1 and 43.9 seconds. The second request carried the previous original reasoning
+verbatim. The agent executed one mouse action at row 44, column 25; no HTTP errors
+occurred. The run ended normally at the action cap with zero levels completed.
+All 30 regression tests passed on both machines. This validates unrestricted output,
+thinking history continuity and action execution, not improved solving performance.
+
+Report: [strata-unlimited-20261009.json](strata-unlimited-20261009.json).
+Full logs: `/home/xiaoxiaohu/agc/runs/duck-thinking-unlimited-20261009`.

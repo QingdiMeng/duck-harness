@@ -20,9 +20,10 @@ class ResponseLoggingTests(unittest.TestCase):
             state = Path(directory) / "state.json"
             write_runtime_state(state, current_frame=Frame(((0, 0), (0, 0)), 0, 1), history=[])
             with patch("inference.agent.tool_agent.requests.post", side_effect=response if isinstance(response, Exception) else None,
-                       return_value=response):
+                       return_value=response) as post:
                 agent.analyze(state, 0, valid_actions=["UP"], analysis_step=1)
                 agent.analyze(state, 0, valid_actions=["UP"], analysis_step=2)
+            self.sent_payloads = [call.kwargs["json"] for call in post.call_args_list]
             log = _resolve_request_log_path(state)
             return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
 
@@ -59,6 +60,15 @@ class ResponseLoggingTests(unittest.TestCase):
                 self.assertEqual(record["http_status"], 200)
                 self.assertEqual(record["finish_reason"], "length")
         self.assertEqual([r["event"] for r in records], ["request", "response"] * 2)
+
+    def test_strata_history_keeps_original_reasoning_content(self):
+        raw = "  original thinking\n\nwith whitespace  "
+        body = {"choices": [{"finish_reason": "stop", "message": {
+            "role": "assistant", "content": None, "reasoning_content": raw}}]}
+        self.run_response(self.response(body))
+        assistant = next(m for m in self.sent_payloads[1]["messages"] if m["role"] == "assistant")
+        self.assertEqual(assistant["reasoning_content"], raw)
+        self.assertNotIn("reasoning", assistant)
 
     def test_tool_arguments_are_preserved_before_normalization(self):
         body = {"choices": [{"finish_reason": "tool_calls", "message": {"role": "assistant",

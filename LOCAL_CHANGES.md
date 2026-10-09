@@ -92,3 +92,13 @@ logs with `python tools/validate_response_logs.py /path/to/requests.jsonl --requ
 
 Real Strata thinking acceptance also passed: four complete HTTP responses and one
 paired timeout. See [validation/response-logging](validation/response-logging/README.md).
+
+## Thinking continuity and unrestricted output
+
+Strata/Qwen history now receives original `reasoning_content` instead of the ignored
+`reasoning` field. The analyzer default `LOCAL_ANALYZER_MAX_OUTPUT=0` omits
+`max_tokens`; Strata then permits generation up to remaining context capacity.
+The acceptance runner now also defaults to 0, with `--max-output` for an explicit cap.
+`--thinking` selects Qwen's recommended temperature 1.0, top_p 0.95 and top_k 20.
+Time budgets, context capacity and the tool-result length limit remain independent.
+All 30 regression tests passed locally and on the experiment machine.

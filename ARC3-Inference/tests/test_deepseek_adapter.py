@@ -32,6 +32,13 @@ class DeepSeekPayloadTests(unittest.TestCase):
         self.assertNotIn('max_tokens', p)
         self.assertEqual(p['thinking'], {'type': 'enabled'})
 
+    def test_vllm_unspecified_output_limit_is_omitted(self):
+        p = build_chat_payload(provider='vllm', model='test', messages=[],
+                               max_tokens=None, temperature=1.0, top_p=0.95,
+                               top_k=20, thinking=True)
+        self.assertNotIn('max_tokens', p)
+        self.assertNotIn('max_completion_tokens', p)
+
     def test_reasoning_history_is_verbatim_and_original_not_mutated(self):
         raw = '  reasoning\n\nwith whitespace  '
         messages = [{'role': 'assistant', 'content': '', 'reasoning': 'display',
