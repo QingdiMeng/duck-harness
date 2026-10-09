@@ -70,6 +70,13 @@ class ResponseLoggingTests(unittest.TestCase):
         self.assertEqual(assistant["reasoning_content"], raw)
         self.assertNotIn("reasoning", assistant)
 
+    def test_effort_reaches_http_request_and_log(self):
+        body = {"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "done"}}]}
+        with patch("inference.agent.tool_agent._LOCAL_ANALYZER_REASONING_EFFORT", "low"):
+            records = self.run_response(self.response(body))
+        self.assertTrue(all(p["reasoning_effort"] == "low" for p in self.sent_payloads))
+        self.assertTrue(all(r["reasoning_effort"] == "low" for r in records))
+
     def test_tool_arguments_are_preserved_before_normalization(self):
         body = {"choices": [{"finish_reason": "tool_calls", "message": {"role": "assistant",
                 "tool_calls": [{"id": "call", "type": "function", "function": {

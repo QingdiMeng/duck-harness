@@ -15,6 +15,8 @@ def main():
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--commit', required=True)
+    parser.add_argument('--effort', choices=['xhigh', 'medium', 'low'], default='xhigh')
+    parser.add_argument('--seed', type=int, default=-1)
     args = parser.parse_args()
     root = args.root.resolve()
     source = root / 'external/Duck-official/ARC3-Inference'
@@ -25,6 +27,7 @@ def main():
                LOCAL_ANALYZER_PROVIDER='vllm', LOCAL_ANALYZER_BASE_URL='http://127.0.0.1:8081/v1',
                LOCAL_ANALYZER_MODEL_ID='qwen3.8-flash-next-coder-iq1_m',
                LOCAL_ANALYZER_ENABLE_THINKING='true', LOCAL_ANALYZER_MAX_OUTPUT='0',
+               LOCAL_ANALYZER_REASONING_EFFORT=args.effort, LOCAL_ANALYZER_SEED=str(args.seed),
                LOCAL_ANALYZER_CONTEXT_WINDOW='32768', LOCAL_ANALYZER_TOOL_STEPS='12',
                LOCAL_ANALYZER_TIMEOUT='0', LOCAL_ANALYZER_YIELD_SECONDS='0',
                LOCAL_ANALYZER_TEMPERATURE='1.0', LOCAL_ANALYZER_TOP_P='0.95', LOCAL_ANALYZER_TOP_K='20',
@@ -40,10 +43,10 @@ def main():
     games = ['lp85', 'g50t', 'ls20', 'vc33']
     config = {'commit': args.commit, 'health': health, 'games': games, 'max_actions': 30,
               'per_game_minutes': 10, 'total_minutes': 45, 'request_timeout_seconds': 600,
-              'thinking': True, 'max_output': 0, 'temperature': 1.0, 'top_p': 0.95, 'top_k': 20,
+              'thinking': True, 'reasoning_effort': args.effort, 'seed': args.seed, 'max_output': 0, 'temperature': 1.0, 'top_p': 0.95, 'top_k': 20,
               'context': 32768, 'code_sha256': hashlib.sha256((source / 'inference/agent/tool_agent.py').read_bytes()).hexdigest(),
               'limitations': ['One stochastic trajectory per game, four public games only.',
-                              'No controlled comparison; the older 3-minute non-thinking run used different budgets.']}
+                              'Sampling is stochastic; differences need repeat runs to establish confidence.']}
     (output / 'solving-config.json').write_text(json.dumps(config, indent=2)+'\n')
     command = [sys.executable, '-u', '-m', 'inference.framework.run', '--game', ','.join(games),
                '--environments-dir', str(root / 'environment_files'), '--model', 'local',

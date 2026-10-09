@@ -144,6 +144,7 @@ _LOCAL_ANALYZER_TOOL_TIMEOUT = _get_env_int("LOCAL_ANALYZER_TOOL_TIMEOUT", 30)
 _LOCAL_ANALYZER_TOOL_OUTPUT_TOKENS = _get_env_int("LOCAL_ANALYZER_TOOL_OUTPUT_TOKENS", 1024)
 _LOCAL_ANALYZER_YIELD_SECONDS = _get_env_float("LOCAL_ANALYZER_YIELD_SECONDS", 0.0)
 _LOCAL_ANALYZER_ENABLE_THINKING = _get_env_bool("LOCAL_ANALYZER_ENABLE_THINKING", True)
+_LOCAL_ANALYZER_REASONING_EFFORT = os.environ.get("LOCAL_ANALYZER_REASONING_EFFORT", "").strip().lower() or None
 _LOCAL_ANALYZER_TEMPERATURE = _get_env_float("LOCAL_ANALYZER_TEMPERATURE", 0.6)
 _LOCAL_ANALYZER_TOP_P = _get_env_float("LOCAL_ANALYZER_TOP_P", 0.95)
 _LOCAL_ANALYZER_TOP_K = _get_env_int("LOCAL_ANALYZER_TOP_K", 20)
@@ -821,6 +822,8 @@ def _append_request_snapshot(
     if request_id is not None:
         payload["request_id"] = request_id
     payload["timestamp_unix"] = time.time()
+    if _LOCAL_ANALYZER_REASONING_EFFORT:
+        payload["reasoning_effort"] = _LOCAL_ANALYZER_REASONING_EFFORT
     if event == "response":
         payload["response"] = response_body
         if isinstance(response_body, dict) and "usage" in response_body:
@@ -1334,6 +1337,7 @@ class ToolAgent:
             tools=tools,
             tool_choice=_request_tool_choice(tools),
             seed=_LOCAL_ANALYZER_SEED,
+            reasoning_effort=_LOCAL_ANALYZER_REASONING_EFFORT,
         )
         def post_chat(request_payload: dict[str, Any]) -> requests.Response:
             return requests.post(
@@ -2152,6 +2156,7 @@ class ToolAgent:
         status = (
             f"model: {self._model.model_id}\n"
             f"base_url: {self._model.base_url}\n"
+            f"reasoning_effort: {_LOCAL_ANALYZER_REASONING_EFFORT or 'server default'}\n"
             f"max_output_tokens: {self._max_output_tokens if self._max_output_tokens is not None else 'server default'}\n"
             f"reply_reserve_tokens: {self._reply_reserve_tokens}\n"
             f"context_budget_tokens: {self._context_budget_tokens}\n"

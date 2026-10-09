@@ -102,3 +102,12 @@ The acceptance runner now also defaults to 0, with `--max-output` for an explici
 `--thinking` selects Qwen's recommended temperature 1.0, top_p 0.95 and top_k 20.
 Time budgets, context capacity and the tool-result length limit remain independent.
 All 30 regression tests passed locally and on the experiment machine.
+
+## Reasoning effort experiments
+
+`LOCAL_ANALYZER_REASONING_EFFORT=medium` or `low` sends an explicit effort parameter
+to the local OpenAI-compatible service when thinking is enabled. An unset value keeps
+the server default. Effort is recorded in request logs and analyzer status. The
+solving runner accepts `--effort` and `--seed`; it retains the same four games,
+30-action / ten-minute budgets and unrestricted output. All 34 regression tests
+passed on Mac and the experiment host, including actual HTTP payload verification.

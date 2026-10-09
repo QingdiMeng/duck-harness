@@ -39,6 +39,23 @@ class DeepSeekPayloadTests(unittest.TestCase):
         self.assertNotIn('max_tokens', p)
         self.assertNotIn('max_completion_tokens', p)
 
+    def test_vllm_effort_is_explicit_without_output_cap(self):
+        for effort in ['medium', 'low']:
+            p = build_chat_payload(provider='vllm', model='test', messages=[],
+                                   max_tokens=None, temperature=1.0, top_p=0.95,
+                                   top_k=20, thinking=True, reasoning_effort=effort)
+            self.assertEqual(p['reasoning_effort'], effort)
+            self.assertEqual(p['chat_template_kwargs']['enable_thinking'], True)
+            self.assertNotIn('max_tokens', p)
+
+    def test_effort_omitted_when_thinking_off_or_other_provider(self):
+        self.assertNotIn('reasoning_effort', self.payload(provider='vllm', thinking=False, reasoning_effort='low'))
+        self.assertNotIn('reasoning_effort', self.payload(provider='deepseek', reasoning_effort='low'))
+
+    def test_unknown_vllm_effort_rejected(self):
+        with self.assertRaises(ValueError):
+            self.payload(provider='vllm', reasoning_effort='typo')
+
     def test_reasoning_history_is_verbatim_and_original_not_mutated(self):
         raw = '  reasoning\n\nwith whitespace  '
         messages = [{'role': 'assistant', 'content': '', 'reasoning': 'display',

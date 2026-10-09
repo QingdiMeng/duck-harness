@@ -46,6 +46,7 @@ def build_chat_payload(
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | None = None,
     seed: int | None = None,
+    reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": model,
@@ -74,6 +75,10 @@ def build_chat_payload(
         if top_k > 0:
             payload["top_k"] = top_k
         payload["chat_template_kwargs"] = {"enable_thinking": bool(thinking)}
+        if thinking and reasoning_effort:
+            if reasoning_effort not in {"low", "medium", "high", "xhigh"}:
+                raise ValueError(f"Unsupported reasoning_effort: {reasoning_effort}")
+            payload["reasoning_effort"] = reasoning_effort
         if seed is not None and seed >= 0:
             payload["seed"] = seed
 
