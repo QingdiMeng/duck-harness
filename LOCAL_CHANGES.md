@@ -72,3 +72,23 @@ respond to the corrective feedback.
 Real Strata acceptance of commit `92704b3` passed on four games, including an LP85
 warning and stop followed by normal VC33 execution. See
 [validation/reviewer](validation/reviewer/README.md) for results and reproduction details.
+
+## Complete response logging
+
+With `--save-request-logs`, each HTTP response is recorded before status checks,
+message normalization or tool dispatch. `event=response` now contains the complete
+parsed JSON in `response`, including every choice, original `reasoning_content`,
+content, tool arguments, usage and provider extensions. Non-JSON bodies are preserved
+in `response_text`. No response text limit is applied by the logger.
+
+Each attempt has a unique `request_id` shared by its request, response and error
+records, plus timestamps, HTTP status and elapsed request time. HTTP failures,
+invalid responses and network errors are recorded; existing fields remain compatible.
+No authorization headers are logged. Earlier logs cannot recover discarded responses.
+The model's output/context limits still apply independently of log preservation.
+
+All 28 regression tests passed locally and on the experiment machine. Validate new
+logs with `python tools/validate_response_logs.py /path/to/requests.jsonl --require-reasoning`.
+
+Real Strata thinking acceptance also passed: four complete HTTP responses and one
+paired timeout. See [validation/response-logging](validation/response-logging/README.md).

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 from urllib.parse import urlparse, urlunparse
+from uuid import uuid4
 
 import requests
 
@@ -794,6 +795,12 @@ def _append_request_snapshot(
     analysis_step: int | None = None,
     action: int | None = None,
     request_index_within_turn: int | None = None,
+    request_id: str | None = None,
+    response_body: Any = None,
+    response_text: str | None = None,
+    http_status: int | None = None,
+    latency_seconds: float | None = None,
+    error: str | None = None,
 ) -> None:
     payload = {
         "messages": messages,
@@ -811,6 +818,21 @@ def _append_request_snapshot(
         payload["action"] = action
     if request_index_within_turn is not None:
         payload["request_index_within_turn"] = request_index_within_turn
+    if request_id is not None:
+        payload["request_id"] = request_id
+    payload["timestamp_unix"] = time.time()
+    if event == "response":
+        payload["response"] = response_body
+        if isinstance(response_body, dict) and "usage" in response_body:
+            payload["usage"] = response_body["usage"]
+    if response_text is not None:
+        payload["response_text"] = response_text
+    if http_status is not None:
+        payload["http_status"] = http_status
+    if latency_seconds is not None:
+        payload["latency_seconds"] = latency_seconds
+    if error is not None:
+        payload["error"] = error
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(
             json.dumps(
@@ -1298,6 +1320,7 @@ class ToolAgent:
         *,
         tools: list[dict[str, Any]] | None,
         request_timeout_seconds: float | None = None,
+        response_observer: Callable[[requests.Response], None] | None = None,
     ) -> _ChatCompletionResult:
         payload = build_chat_payload(
             provider=self._model.provider,
@@ -1321,6 +1344,9 @@ class ToolAgent:
             )
 
         response = post_chat(payload)
+        # Capture the complete HTTP body before parsing, normalizing, or raising errors.
+        if response_observer is not None:
+            response_observer(response)
         if self._model.provider == "deepseek" and response.status_code in {400, 401, 402, 403, 404, 422}:
             raise ValueError(f"DeepSeek rejected the request (HTTP {response.status_code}): {response.text[:1000]}")
         try:
@@ -1788,6 +1814,9 @@ class ToolAgent:
         latest_request_tools: list[dict[str, Any]] | None = None
         latest_request_tool_choice: str | None = None
         latest_request_index = 0
+        latest_request_id: str | None = None
+        request_started_at = 0.0
+        request_error_logged = False
         turn_started_at = time.monotonic()
         yielded_control_reason: str | None = None
         reviewer_stop_reason: str | None = None
@@ -1817,6 +1846,9 @@ class ToolAgent:
                 latest_request_tools = json.loads(json.dumps(tools))
                 latest_request_tool_choice = tool_choice
                 latest_request_index = turn_count
+                latest_request_id = uuid4().hex
+                request_started_at = time.monotonic()
+                request_error_logged = False
                 _write_prompt_log_snapshot(
                     prompt_log,
                     model_id=self._model.model_id,
@@ -1843,22 +1875,49 @@ class ToolAgent:
                             analysis_step=analysis_step,
                             action=display_action_num,
                             request_index_within_turn=latest_request_index,
+                            request_id=latest_request_id,
                         )
+                        def record_response(response: requests.Response) -> None:
+                            response_text = None
+                            try:
+                                body = response.json()
+                            except ValueError:
+                                body = None
+                                response_text = response.text
+                            choices = body.get("choices") if isinstance(body, dict) else None
+                            finish_reason = None
+                            if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+                                finish_reason = choices[0].get("finish_reason")
+                            _append_request_snapshot(
+                                _resolve_request_log_path(state_path),
+                                messages=latest_request_messages,
+                                tools=latest_request_tools,
+                                event="response",
+                                tool_choice=latest_request_tool_choice,
+                                analysis_step=analysis_step,
+                                action=display_action_num,
+                                request_index_within_turn=latest_request_index,
+                                request_id=latest_request_id,
+                                finish_reason=finish_reason,
+                                response_body=body,
+                                response_text=response_text,
+                                http_status=response.status_code,
+                                latency_seconds=time.monotonic() - request_started_at,
+                            )
+                        request_kwargs["response_observer"] = record_response
                     result = self._chat_completion(messages, **request_kwargs)
                     self._accumulate_usage_tokens(result.usage)
+                except requests.RequestException as exc:
                     if self._save_request_logs:
                         _append_request_snapshot(
                             _resolve_request_log_path(state_path),
-                            messages=latest_request_messages,
-                            tools=latest_request_tools,
-                            event="response",
-                            tool_choice=latest_request_tool_choice,
-                            analysis_step=analysis_step,
-                            action=display_action_num,
+                            messages=latest_request_messages, tools=latest_request_tools,
+                            event="error", request_id=latest_request_id,
+                            analysis_step=analysis_step, action=display_action_num,
                             request_index_within_turn=latest_request_index,
-                            finish_reason=result.finish_reason,
+                            error=str(exc), latency_seconds=time.monotonic() - request_started_at,
                         )
-                except requests.RequestException as exc:
+                        request_error_logged = True
                     if not _is_context_length_error(exc):
                         raise
                     trimmed_messages = self._trim_messages_for_context(
@@ -2046,6 +2105,15 @@ class ToolAgent:
             log.warning("analyzer request failed at action %d: %s", display_action_num, exc)
             return AnalyzerTurnResult(step_executed=False, retryable_failure=True, reasoning=captured_reasoning)
         except Exception as exc:
+            if self._save_request_logs and latest_request_id is not None and not request_error_logged:
+                _append_request_snapshot(
+                    _resolve_request_log_path(state_path),
+                    messages=latest_request_messages or [], tools=latest_request_tools,
+                    event="error", request_id=latest_request_id,
+                    analysis_step=analysis_step, action=display_action_num,
+                    request_index_within_turn=latest_request_index,
+                    error=str(exc), latency_seconds=time.monotonic() - request_started_at,
+                )
             append_transcript("ANALYZER STATUS", f"error: {exc}")
             preserve_history = False
             if latest_request_messages is not None:
